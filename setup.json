@@ -1,0 +1,4 @@
+{
+	"python_requirements":"requirements.txt",
+	"docker":{"docker":"blakedewey/flairstar:deprecated","tag":"blakedewey/flairstar:latest"}
+}

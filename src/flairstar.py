@@ -8,7 +8,6 @@ rec-star_FLAIR
 """
 
 
-import sys
 import os
 from os.path import join as pjoin
 from os.path import exists as pexists
@@ -48,20 +47,11 @@ from PyQt5.QtWidgets import (QDesktopWidget,
                              QCheckBox)
 from PyQt5.QtGui import (QFont,
                          QIcon)
-import traceback
-import threading
 import subprocess
 import pandas as pd
 import platform
 import json
-from bids_validator import BIDSValidator
-import time
 import shutil
-import docker
-
-
-# from my_logging import setup_logging
-from tqdm.auto import tqdm
 
 
 def launch(parent, add_info=None):
@@ -317,7 +307,6 @@ class FlairStarWorker(QObject):
         self.subjects_and_sessions = subjects_and_sessions
         self.flair = flair
         self.t2star = t2star
-        self.client = docker.from_env()
 
 
     def run(self):
