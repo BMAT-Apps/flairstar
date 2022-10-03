@@ -1,7 +1,7 @@
 {
 	"name": "FLAIR*",
-	"source_code": "rec-star_FLAIR.py",
-	"import_name": "rec-star_FLAIR",
-	"attr": "rec-star_FLAIR",
+	"source_code": "flairstar.py",
+	"import_name": "flairstar",
+	"attr": "flairstar",
 	"add_info":{"flair":"FLAIR", "t2star":"part-mag_T2starw"}
 }
