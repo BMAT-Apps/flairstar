@@ -4,9 +4,9 @@ This pipeline allows to reconstruct the FLAIR* sequence by multiplying the FLAIR
 
 The first figure below shows the window of this pipeline. This window contains the following information:
 
-* "Select subjects" input: allows the user to script the selected registration (sequence to register, reference sequence) for other subjects of the dataset. By default (when this field is empty), the registration will only be done for the subject assocuated to the file selected before. by adding a list BIDS ID (without "sub-") separated by a comma, this registration process can be scripted to other subjects. Possible values are: single BIDS ID (e.g. "001,002,006,013"), multiple folowing BIDS ID (e.g. "001-005" is the same as '001,002,003,004,005"), or all subjects ("all").
+* "Select subjects" input: allows the user to script the computation of the Flair* image for other subjects of the dataset by adding a list BIDS ID (without "sub-") separated by a comma. Possible values are: single BIDS ID (e.g. "001,002,006,013"), multiple folowing BIDS ID (e.g. "001-005" is the same as '001,002,003,004,005"), or all subjects ("all").
 
-* "Select sessions" input: allows the user to script the selected registration (sequence to register, reference sequence) for other sessions of subjects of the dataset. By default (when this field is empty), the registration will only be done for the subject and session assocuated to the file selected before. by adding a list session ID (without "ses-") separated by a comma, this registration process can be scripted to other sessions. Possible values are: single session ID (e.g. "01,02,06,13"), multiple folowing session ID (e.g. "01-05" is the same as '01,02,03,04,05"), or all sessions ("all").
+* "Select sessions" input: allows the user to script the computation of the Flair* image for other sessions of subjects of the dataset by adding a list session ID (without "ses-") separated by a comma. Possible values are: single session ID (e.g. "01,02,06,13"), multiple folowing session ID (e.g. "01-05" is the same as '01,02,03,04,05"), or all sessions ("all").
 
 * "Computation of the Flair Star" button: launch the flairstar script based on all information given by the user.
 
