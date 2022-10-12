@@ -307,6 +307,7 @@ class FlairStarWorker(QObject):
         self.subjects_and_sessions = subjects_and_sessions
         self.flair = flair
         self.t2star = t2star
+        self.pipeline = 'FLAIR*'
 
 
     def run(self):
@@ -318,20 +319,19 @@ class FlairStarWorker(QObject):
         None.
 
         """
-        self.in_progress.emit(('rec-star_FLAIR', True))
+        self.in_progress.emit((self.pipeline, True))
         
         for sub, sess in self.subjects_and_sessions:
             for ses in sess:
                 # Action
-                derivative = 'rec-star_FLAIR'
                 sub_ses_directory = pjoin(self.bids.root_dir, f'sub-{sub}', f'ses-{ses}', 'anat')
                 flair = f'sub-{sub}_ses-{ses}_{self.flair}.nii.gz'
                 t2star = f'sub-{sub}_ses-{ses}_{self.t2star}.nii.gz'
-                flair_star = f'sub-{sub}_ses-{ses}_{derivative}.nii.gz'
+                flair_star = f'sub-{sub}_ses-{ses}_rec-star_FLAIR.nii.gz'
                 # Create directory
-                directories = [pjoin('derivatives', derivative), pjoin('derivatives', derivative, f'sub-{sub}'), pjoin('derivatives', derivative, f'sub-{sub}', f'ses-{ses}')]
+                directories = [pjoin('derivatives', self.pipeline), pjoin('derivatives', self.pipeline, f'sub-{sub}'), pjoin('derivatives', self.pipeline, f'sub-{sub}', f'ses-{ses}')]
                 self.bids.mkdirs_if_not_exist(self.bids.root_dir, directories=directories)
-                sub_ses_derivative_path = pjoin(self.bids.root_dir, 'derivatives', derivative, f'sub-{sub}', f'ses-{ses}')
+                sub_ses_derivative_path = pjoin(self.bids.root_dir, 'derivatives', self.pipeline, f'sub-{sub}', f'ses-{ses}')
                 # Perform Flair Star computation
                 try:
                     logging.info(f'Computing FlairStar for sub-{sub} ses-{ses}...')
@@ -346,5 +346,5 @@ class FlairStarWorker(QObject):
                 except Exception as e:
                     logging.error(f'Error {e} when computing FlairStar for sub-{sub}_ses{ses}!')
                     
-        self.in_progress.emit(('rec-star_FLAIR', False))
+        self.in_progress.emit((self.pipeline, False))
         self.finished.emit()
