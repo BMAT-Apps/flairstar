@@ -2,6 +2,11 @@
 
 This pipeline allows to reconstruct the FLAIR* sequence by multiplying the FLAIR sequence with the magnitude T2star sequence. This pipeline is especially usesful to observe the Central Vein Sign for Multiple Sclerosis studies. This is based on the following docker of Blake Dewey: blakedewey/flairstar.
 
+## How to cite
+1. Sati P, George IC, Shea CD, Gaitán MI, Reich DS. FLAIR*: A Combined MR Contrast Technique for Visualizing White Matter Lesions and Parenchymal Veins. Radiology. 2012 Dec;265(3):926–32. 
+
+## Utilization
+
 The first figure below shows the window of this pipeline. This window contains the following information:
 
 * "Select FLAIR image": open a File explorer and allow the user to specify the path towards the FLAIR image to use for the pipeline
