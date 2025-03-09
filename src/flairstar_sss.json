@@ -1,0 +1,17 @@
+{
+	"python_script":"",
+	"venv":"",
+	"log":"",
+	"modules":[],
+	"slurm_infos":{
+		"job-name":"",
+		"nodes":"",
+		"ntasks":"",
+		"cpus-per-task":"",
+		"mem-per-cpu":"",
+		"time":"",
+		"mail-type":"",
+		"mail-user":""
+	},
+	"args":{}
+}

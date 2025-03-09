@@ -4,10 +4,11 @@
 Created on Wed Nov 10 14:25:40 2021
 
 @author: ColinVDB
-rec-star_FLAIR
+Template
 """
 
 
+import sys
 import os
 from os.path import join as pjoin
 from os.path import exists as pexists
@@ -21,7 +22,8 @@ from PyQt5.QtCore import (QSize,
                           QThread,
                           pyqtSignal,
                           QRunnable,
-                          QThreadPool)
+                          QThreadPool, 
+                          QEvent)
 from PyQt5.QtWidgets import (QDesktopWidget,
                              QApplication,
                              QWidget,
@@ -44,19 +46,23 @@ from PyQt5.QtWidgets import (QDesktopWidget,
                              QMenu,
                              QAction,
                              QTabWidget,
-                             QCheckBox)
+                             QCheckBox,
+                             QInputDialog,
+                             QTextBrowser,
+                             QToolBar)
 from PyQt5.QtGui import (QFont,
                          QIcon)
-import subprocess
-import pandas as pd
-import platform
+import markdown
 import json
-import shutil
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bids_flairstar import bids_flairstar, bids_flairstar_docker, find_subjects_and_sessions
+import time
+
 
 
 def launch(parent, add_info=None):
     """
-
+    
 
     Parameters
     ----------
@@ -79,11 +85,11 @@ def launch(parent, add_info=None):
 class MainWindow(QMainWindow):
     """
     """
-
+    
 
     def __init__(self, parent, add_info):
         """
-
+        
 
         Parameters
         ----------
@@ -100,21 +106,58 @@ class MainWindow(QMainWindow):
         self.bids = self.parent.bids
         self.add_info = add_info
 
-        self.setWindowTitle("Rec-star_FLAIR computation")
+        self.setWindowTitle("Compute FLAIRstar")
         self.window = QWidget(self)
         self.setCentralWidget(self.window)
         self.center()
-
-        self.tab = FlairStarTab(self)
-        layout = QVBoxLayout()
-        layout.addWidget(self.tab)
+        
+        # Create a toolbar and add it to the main window
+        self.toolbar = QToolBar("Help?")
+        self.addToolBar(self.toolbar)
+        # Create an action
+        help_action = QAction("Help?", self)
+        help_action.triggered.connect(self.show_help)  # Connect to function
+        # Add action to the toolbar
+        self.toolbar.addAction(help_action)
+        
+        self.pipeline = "flairstar"
+        
+        sss_slurm = self.add_info.get('sss_slurm')
+        
+        if sss_slurm == None:
+            print('no sss slurm')
+            self.tab = FLAIRstarTab(self, sss_slurm)
+            layout = QVBoxLayout()
+            layout.addWidget(self.tab)
+            
+        else:
+            # get job_info
+            path = os.path.dirname(os.path.abspath(__file__))
+            
+            if not pexists(pjoin(path, sss_slurm)):
+                print('[ERROR] sss_slurm json file not found')
+            
+            self.job_json = None
+            with open(pjoin(path, sss_slurm), 'r') as f:
+                self.job_json = json.load(f)
+            
+            self.tabs = QTabWidget(self)
+            
+            self.main_tab = FLAIRstarTab(self, sss_slurm)
+            self.job_tab = JobTab(self, self.job_json["slurm_infos"])
+            
+            self.tabs.addTab(self.main_tab, "Main")
+            self.tabs.addTab(self.job_tab, "Slurm Job")
+            
+            layout = QVBoxLayout()
+            layout.addWidget(self.tabs)
 
         self.window.setLayout(layout)
 
 
     def center(self):
         """
-
+        
 
         Returns
         -------
@@ -125,20 +168,58 @@ class MainWindow(QMainWindow):
         cp = QDesktopWidget().availableGeometry().center()
         qr.moveCenter(cp)
         self.move(qr.topLeft())
+        
+        
+    def event(self, event):
+        # Override the help button event
+        if event.type() == QEvent.NonClientAreaMouseButtonPress:
+            if self.windowFlags() & Qt.WindowContextHelpButtonHint:
+                self.show_help()
+                return True
+        return super().event(event)
+
+    def show_help(self):
+        # Open the help window with the Markdown file
+        markdown_path = pjoin(os.path.dirname(__file__), "..", "README.md")
+        if pexists(markdown_path):
+            self.help_window = HelpWindow(markdown_path)
+            self.help_window.show()
+        else:
+            print('Readme not found')
+            
+            
+class HelpWindow(QWidget):
+    def __init__(self, markdown_file):
+        super().__init__()
+        self.setWindowTitle("Help")
+        self.resize(600, 400)
+
+        # Load and convert markdown to HTML
+        with open(markdown_file, 'r') as file:
+            markdown_content = file.read()
+        html_content = markdown.markdown(markdown_content)
+
+        # Setup QTextBrowser to display the HTML content
+        self.text_browser = QTextBrowser()
+        self.text_browser.setHtml(html_content)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.text_browser)
+        self.setLayout(layout)
 
 
 
 # =============================================================================
-# FlairStarTab
+# TemplateTab
 # =============================================================================
-class FlairStarTab(QWidget):
+class FLAIRstarTab(QWidget):
     """
     """
+    
 
-
-    def __init__(self, parent):
+    def __init__(self, parent, sss_slurm=None):
         """
-
+        
 
         Parameters
         ----------
@@ -153,27 +234,58 @@ class FlairStarTab(QWidget):
         super().__init__()
         self.parent = parent
         self.bids = self.parent.bids
-        self.add_info = self.parent.add_info
+        self.bmat_path = self.parent.parent.bmat_path
         self.setMinimumSize(500, 200)
-
+        
+        self.pipeline = self.parent.pipeline
+        
+        self.local = sss_slurm == None
+        
+        if not self.local:
+            self.job_json = self.parent.job_json
+        
+        # self.label = QLabel("This is a Template Pipeline")
+        self.sub = ''
+        self.ses = ''
+        
+        self.select_flair_button = QPushButton("Select FLAIR image")
+        self.select_flair_button.clicked.connect(self.select_flair)
+        self.flair_label = QLabel()
+        
+        self.select_t2star_button = QPushButton("Select T2starw magnitude image")
+        self.select_t2star_button.clicked.connect(self.select_t2star)
+        self.t2star_label = QLabel()
+        
+        self.deriv = QLineEdit(self)
+        self.deriv.setPlaceholderText("output derivative folder (default: flairstar)")
+        
+        self.out_name = QLineEdit(self)
+        self.out_name.setPlaceholderText("output img name (default: FLAIRstar)")
+        
         self.subjects_input = QLineEdit(self)
         self.subjects_input.setPlaceholderText("Select subjects")
 
         self.sessions_input = QLineEdit(self)
         self.sessions_input.setPlaceholderText("Select sessions")
-
-        self.flairStar_button = QPushButton("Computation of the Flair Star")
-        self.flairStar_button.clicked.connect(self.flairStar_computation)
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.subjects_input)
-        layout.addWidget(self.sessions_input)
-        layout.addWidget(self.flairStar_button)
-
+        
+        self.button = QPushButton("Compute FLAIRstar")
+        self.button.clicked.connect(self.action)
+        
+        layout = QGridLayout()
+        layout.addWidget(self.select_flair_button, 0, 0, 1, 1)
+        layout.addWidget(self.flair_label, 0, 1, 1, 1)
+        layout.addWidget(self.select_t2star_button, 1, 0, 1, 1)
+        layout.addWidget(self.t2star_label, 1, 1, 1, 1)
+        layout.addWidget(self.deriv, 2, 0, 1, 2)
+        layout.addWidget(self.out_name, 3, 0, 1, 2)
+        layout.addWidget(self.subjects_input, 4, 0, 1, 2)
+        layout.addWidget(self.sessions_input, 5, 0, 1, 2)
+        layout.addWidget(self.button, 6, 0, 1, 2)
+        
         self.setLayout(layout)
-
-
-    def flairStar_computation(self):
+        
+        
+    def select_flair(self):
         """
 
 
@@ -182,120 +294,198 @@ class FlairStarTab(QWidget):
         None.
 
         """
-        subjects = self.subjects_input.text()
-        sessions = self.sessions_input.text()
-        self.subjects = []
-        # find subjects
-        if subjects == 'all':
-            all_directories = [x for x in next(os.walk(self.bids.root_dir))[1]]
-            for sub in all_directories:
-                if sub.find('sub-') == 0:
-                    self.subjects.append(sub.split('-')[1])
-        else:
-            subjects_split = subjects.split(',')
-            for sub in subjects_split:
-                if '-' in sub:
-                    inf_bound = sub.split('-')[0]
-                    sup_bound = sub.split('-')[1]
-                    fill = len(inf_bound)
-                    inf = int(inf_bound)
-                    sup = int(sup_bound)
-                    for i in range(inf,sup+1):
-                        self.subjects.append(str(i).zfill(fill))
-                else:
-                    self.subjects.append(sub)
-
-        # find sessions
-        self.sessions = []
-        if sessions == 'all':
-            self.sessions.append('all')
-        else:
-            sessions_split = sessions.split(',')
-            for ses in sessions_split:
-                if '-' in ses:
-                    inf_bound = ses.split('-')[0]
-                    sup_bound = ses.split('-')[1]
-                    fill = len(inf_bound)
-                    inf = int(inf_bound)
-                    sup = int(sup_bound)
-                    for i in range(inf, sup+1):
-                        self.sessions.append(str(i).zfill(fill))
-                else:
-                    self.sessions.append(ses)
-
-        self.subjects_and_sessions = []
-        for sub in self.subjects:
-            if len(self.sessions) != 0:
-                if self.sessions[0] == 'all':
-                    all_directories = [x for x in next(os.walk(pjoin(self.bids.root_dir,f'sub-{sub}')))[1]]
-                    sub_ses = []
-                    for ses in all_directories:
-                        if ses.find('ses-') == 0:
-                            sub_ses.append(ses.split('-')[1])
-                    self.subjects_and_sessions.append((sub,sub_ses))
-                else:
-                    self.subjects_and_sessions.append((sub,self.sessions))
-
-        self.thread = QThread()
-        self.action = FlairStarWorker(self.bids, self.subjects_and_sessions, flair=self.add_info.get('flair'), t2star=self.add_info.get('t2star'))
-        self.action.moveToThread(self.thread)
-        self.thread.started.connect(self.action.run)
-        self.action.in_progress.connect(self.is_in_progress)
-        self.action.finished.connect(self.thread.quit)
-        self.action.finished.connect(self.action.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        # last = (sub == self.subjects_and_sessions[-1][0] and ses == sess[-1])
-        # self.thread.finished.connect(lambda last=last: self.end_pipeline(last))
-        self.thread.start()
-
-        self.parent.hide()
+        self.flair_path, _ = QFileDialog.getOpenFileName(self, "Select FLAIR image", self.bids.root_dir, options=QFileDialog.DontUseNativeDialog)
+        if self.flair_path == '':
+            return
+        
+        filename = os.path.basename(self.flair_path)
+        filename_no_ext = filename.split('.')[0]
+        filename_d = filename_no_ext.split('_')
+        seq_name_d = []
+        for k in filename_d:
+            if 'sub-' in k:
+                self.sub = k.split('-')[1]
+            elif'ses-' in k:
+                self.ses = k.split('-')[1]
+            else:
+                seq_name_d.append(k)
+        seq_name = '_'.join(seq_name_d)
+        self.flair_label.setText(seq_name)
         
         
+    def select_t2star(self):
+        """
+
+
+        Returns
+        -------
+        None.
+
+        """
+        self.t2star_path, _ = QFileDialog.getOpenFileName(self, "Select T2starw magnitude image", self.bids.root_dir, options=QFileDialog.DontUseNativeDialog)
+        if self.t2star_path == '':
+            return
+        
+        filename = os.path.basename(self.t2star_path)
+        filename_no_ext = filename.split('.')[0]
+        filename_d = filename_no_ext.split('_')
+        seq_name_d = []
+        for k in filename_d:
+            if 'sub-' in k:
+                self.sub = k.split('-')[1]
+            elif'ses-' in k:
+                self.ses = k.split('-')[1]
+            else:
+                seq_name_d.append(k)
+        seq_name = '_'.join(seq_name_d)
+        self.t2star_label.setText(seq_name)
+
+
+    def action(self):
+        """
+        
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        # select sub and ses to run
+        sub = self.subjects_input.text()
+        if sub == '':
+            sub = self.sub
+        ses = self.sessions_input.text()
+        if ses == '':
+            ses = self.ses
+        # sub = '001'
+        # ses = '01'
+        
+        deriv = self.deriv.text()
+        if deriv == '':
+            deriv = None
+        out_name = self.out_name.text()
+        if out_name == '':
+            out_name = None
+            
+        args = []
+        args.extend(['--flair-path', self.flair_path])
+        args.extend(['--t2star-path', self.t2star_path])
+        if deriv:
+            args.extend(['--derivative', deriv])
+        if out_name:
+            args.extend(['--out-name', out_name])
+        
+        if self.local:
+            use_docker = self.parent.add_info.get('use_docker')
+            self.thread = QThread()
+            self.action = ActionWorker(self.bids.root_dir, sub, ses, self.pipeline, self.flair_path, self.t2star_path, deriv=deriv, out_name=out_name, use_docker=use_docker)
+            self.action.moveToThread(self.thread)
+            self.thread.started.connect(self.action.run)
+            self.action.in_progress.connect(self.is_in_progress)
+            self.action.finished.connect(self.thread.quit)
+            self.action.finished.connect(self.action.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.thread.start()
+        
+            self.parent.hide()
+            
+        else:
+            self.job_json["slurm_infos"] = self.parent.job_tab.get_slurm_job_info()
+            if self.job_json["slurm_infos"]["use_local"]:
+                self.local = True
+                self.action()
+                return
+            
+            else:
+                self.job_json["slurm_infos"].pop("use_local")
+            
+            # Import the submit_job_sss
+            sys.path.insert(0, self.bmat_path)
+            submit_job_sss = __import__('submit_job_sss')
+            submit_job = submit_job_sss.submit_job
+            sys.path.pop(0)
+            
+            # Do action
+            def getPassword():
+                password, ok = QInputDialog.getText(self, "SSH Key Passphrase", "Unlocking SSH key with passphrase?", 
+                                        QLineEdit.Password)
+                passphrase = None
+                if ok and password:
+                    passphrase = password
+                return passphrase
+            
+            passphrase = getPassword()
+            
+            # Do the job here and not in a thread 
+            self.is_in_progress(('flairstar', True))
+            jobs_submitted = []
+                
+            try:
+                job_id = submit_job(self.bids.root_dir, sub, ses, self.job_json, args=args, use_asyncssh=True, passphrase=passphrase, one_job=False)
+                # job_id = ['Submitted batch job 2447621']
+                if job_id is not None and job_id != []:
+                    if type(job_id) is list:
+                        jobs_submitted.extend(job_id)
+                    else:
+                        jobs_submitted.append(job_id)
+
+            except Exception as e:
+                self.error_handler(e)
+            
+            self.is_in_progress(('flairstar', False))
+            self.submitted_jobs(jobs_submitted)
+            
     def is_in_progress(self, in_progress):
         self.parent.parent.work_in_progress.update_work_in_progress(in_progress)
+        
+    
+    def error_handler(self, exception):
+        QMessageBox.critical(self, type(exception).__name__, str(exception))
+        
+    def submitted_jobs(self, jobs_id):
+        print('submitted jobs')
+        class SubmittedJobsDialog(QDialog):
+            def __init__(self, results, parent=None):
+                super().__init__()
+        
+                self.setWindowTitle('Jobs Submitted')
+                self.setGeometry(300, 300, 400, 300)
+                
+                layout = QVBoxLayout(self)
+                
+                # Create and populate the QListWidget
+                self.listWidget = QListWidget(self)
+                for result in results:
+                    self.listWidget.addItem(result)
+                
+                layout.addWidget(self.listWidget)
+        
+                # Create OK button
+                self.okButton = QPushButton('OK', self)
+                self.okButton.clicked.connect(self.accept)
+                
+                # Add OK button to layout
+                buttonLayout = QHBoxLayout()
+                buttonLayout.addStretch()
+                buttonLayout.addWidget(self.okButton)
+                
+                layout.addLayout(buttonLayout)
+                
+        job_dialog = SubmittedJobsDialog(jobs_id)
+        # job_submitted_window = QMainWindow()
+        # job_submitted_window.setCentralWidget(job_dialog)
+        job_dialog.exec_()
+        
+        
 
-
-    def end_pipeline(self, last):
-        """
-
-
-        Parameters
-        ----------
-        last : TYPE
-            DESCRIPTION.
-
-        Returns
-        -------
-        None.
-
-        """
-        if last:
-            logging.info("rec-star_FLAIR Pipeline has finished working")
-
-
-
-# =============================================================================
-# FlairStarWorker
-# =============================================================================
-class FlairStarWorker(QObject):
+class JobTab(QWidget):
     """
     """
-    finished = pyqtSignal()
-    in_progress = pyqtSignal(tuple)
-
-
-    def __init__(self, bids, subjects_and_sessions, flair='FLAIR', t2star='part-mag_T2starw'):
+    
+    def __init__(self, parent, slurm_infos):
         """
-
-
-        Parameters
-        ----------
-        bids : TYPE
-            DESCRIPTION.
-        sub : TYPE
-            DESCRIPTION.
-        ses : TYPE
-            DESCRIPTION.
+        
 
         Returns
         -------
@@ -303,16 +493,79 @@ class FlairStarWorker(QObject):
 
         """
         super().__init__()
-        self.bids = bids
-        self.subjects_and_sessions = subjects_and_sessions
-        self.flair = flair
-        self.t2star = t2star
-        self.pipeline = 'FLAIR*'
+        
+        self.parent = parent
+        self.bids = self.parent.bids
+        self.slurm_info = slurm_infos
+        self.setMinimumSize(500, 200)
+        
+        self.use_local_check = QCheckBox('Use local instead of server pipeline')
+        
+        self.slurm_info_input = {}
+        layout = QVBoxLayout()
+        layout.addWidget(self.use_local_check)
+        for key in self.slurm_info.keys():
+            key_label = QLabel(key)
+            key_input = QLineEdit(self)
+            key_input.setPlaceholderText(self.slurm_info[key])
+            key_layout = QHBoxLayout()
+            self.slurm_info_input[f'{key}_input'] = key_input
+            key_layout.addWidget(key_label)
+            key_layout.addWidget(key_input)
+            layout.addLayout(key_layout)
+            
+        self.setLayout(layout)
+            
+            
+    def get_slurm_job_info(self):
+        use_local = self.use_local_check.isChecked()
+        slurm_job_info = {"use_local":use_local}
+        for key in self.slurm_info.keys():
+            key_text = self.slurm_info_input[f'{key}_input'].text()
+            if key_text == None or key_text == "":
+                key_text = self.slurm_info_input[f'{key}_input'].placeholderText()
+                
+            slurm_job_info[key] = key_text
+        return slurm_job_info
 
+
+
+# =============================================================================
+# ActionWorker
+# =============================================================================
+class ActionWorker(QObject):
+    """
+    """
+    finished = pyqtSignal()
+    progress = pyqtSignal(int)
+    in_progress = pyqtSignal(tuple)
+    
+
+    def __init__(self, bids, sub, ses, pipeline, flair_path, t2star_path, deriv=None, out_name=None, use_docker=False):
+        """
+        
+
+        Returns
+        -------
+        None.
+
+        """
+        super().__init__()
+        
+        self.bids = bids
+        self.sub = sub
+        self.ses = ses
+        self.pipeline = pipeline
+        self.flair_path = flair_path
+        self.t2star_path = t2star_path
+        self.deriv = deriv
+        self.out_name = out_name
+        self.use_docker = use_docker
+        
 
     def run(self):
         """
-
+        
 
         Returns
         -------
@@ -320,31 +573,23 @@ class FlairStarWorker(QObject):
 
         """
         self.in_progress.emit((self.pipeline, True))
+        # Action
+        print('Beginning of the action')
+        subjects_and_sessions = find_subjects_and_sessions(self.bids, self.sub, self.ses, check_if_exist=False)
         
-        for sub, sess in self.subjects_and_sessions:
+        kwargs = {k: v for k, v in {"deriv":self.deriv, "out_name":self.out_name}.items() if v is not None}
+        
+        for sub, sess in subjects_and_sessions:
             for ses in sess:
-                # Action
-                sub_ses_directory = pjoin(self.bids.root_dir, f'sub-{sub}', f'ses-{ses}', 'anat')
-                flair = f'sub-{sub}_ses-{ses}_{self.flair}.nii.gz'
-                t2star = f'sub-{sub}_ses-{ses}_{self.t2star}.nii.gz'
-                flair_star = f'sub-{sub}_ses-{ses}_rec-star_FLAIR.nii.gz'
-                # Create directory
-                directories = [pjoin('derivatives', self.pipeline), pjoin('derivatives', self.pipeline, f'sub-{sub}'), pjoin('derivatives', self.pipeline, f'sub-{sub}', f'ses-{ses}')]
-                self.bids.mkdirs_if_not_exist(self.bids.root_dir, directories=directories)
-                sub_ses_derivative_path = pjoin(self.bids.root_dir, 'derivatives', self.pipeline, f'sub-{sub}', f'ses-{ses}')
-                # Perform Flair Star computation
-                try:
-                    logging.info(f'Computing FlairStar for sub-{sub} ses-{ses}...')
-
-                    # subprocess.Popen('echo Abrico2021 | sudo chmod 666 /var/run/docker.sock')
-                    subprocess.Popen(f'docker run --rm -v {sub_ses_directory}:/data blakedewey/flairstar -f {flair} -t {t2star} -o {flair_star}', shell=True).wait()
-                    # self.client.containers.run('blakedewey/flairstar', auto_remove=True, volumes=[f'{sub_ses_directory}:/data'], command=[f'-f {flair} -t {t2star}, -o {flair_star}'])
-
-                    shutil.move(pjoin(sub_ses_directory, flair_star), sub_ses_derivative_path)
-
-                    logging.info(f'FlairStar for sub-{sub} ses-{ses} computed!')
-                except Exception as e:
-                    logging.error(f'Error {e} when computing FlairStar for sub-{sub}_ses{ses}!')
-                    
+                print(sub, ses)
+                if self.use_docker:
+                    print('use_docker')
+                    bids_flairstar_docker(self.bids, sub, ses, self.flair_path, self.t2star_path, **kwargs)
+                else:
+                    bids_flairstar(self.bids, sub, ses, self.flair_path, self.t2starw_path, **kwargs)
+                
+        print('End of the action')
         self.in_progress.emit((self.pipeline, False))
         self.finished.emit()
+
+

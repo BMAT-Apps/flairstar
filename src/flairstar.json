@@ -3,5 +3,5 @@
 	"source_code": "flairstar.py",
 	"import_name": "flairstar",
 	"attr": "flairstar",
-	"add_info":{"flair":"FLAIR", "t2star":"part-mag_T2starw"}
+	"add_info":{"use_docker":true}
 }
